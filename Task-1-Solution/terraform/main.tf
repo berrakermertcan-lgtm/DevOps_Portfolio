@@ -1,0 +1,73 @@
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+  }
+}
+
+provider "aws" {
+  # Configuration options
+  region = "us-east-1"
+
+}
+data "aws_ami" "al2023" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
+  }
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-2023*"]
+  }
+}
+resource "aws_instance" "devops_project_instance" {
+  ami           = terraform.workspace != "default" ? lookup(var.myami, terraform.workspace) : data.aws_ami.al2023.id
+  instance_type = var.ec2_type
+  count         = var.num_of_instance
+  key_name      = var.ec2_key
+  root_block_device {
+    volume_size = 20
+    volume_type = "gp3"
+  }
+  vpc_security_group_ids = [aws_security_group.devops_project_sgr.id]
+  tags = {
+    Project = "Devops-Project-Server"
+    Name    = "${terraform.workspace}_server"
+  }
+}
+
+resource "aws_security_group" "devops_project_sgr" {
+  name        = "${terraform.workspace}_Security_Group"
+  description = "Security group for Devops Project Server"
+
+  dynamic "ingress" {
+    for_each = lookup(var.ports, terraform.workspace)
+    content {
+      from_port   = ingress.value
+      to_port     = ingress.value
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = -1
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+
+
+

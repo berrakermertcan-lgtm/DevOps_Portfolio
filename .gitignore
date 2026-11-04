@@ -1,0 +1,17 @@
+# Terraform state and local files
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/terraform.tfstate.d/
+**/*.tfvars
+
+# Credentials and secrets
+.env
+.env.*
+*.pem
+*.key
+
+# macOS and IDE
+.DS_Store
+.idea/
+.vscode/
