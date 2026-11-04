@@ -57,7 +57,7 @@ resource "aws_security_group" "devops_project_sgr" {
       from_port   = ingress.value
       to_port     = ingress.value
       protocol    = "tcp"
-      cidr_blocks = ["0.0.0.0/0"]
+      cidr_blocks = contains([80, 443], ingress.value) ? ["0.0.0.0/0"] : ["127.0.0.1/32"]
     }
   }
   egress {
