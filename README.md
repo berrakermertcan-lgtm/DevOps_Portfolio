@@ -36,13 +36,26 @@ Task-1-Solution/
 
 ## Implementation
 
-In Task 1, I configured Terraform to provision AWS infrastructure and integrated the configuration with a Jenkins pipeline.
+The project was developed in three stages:
 
-The pipeline was tested by deploying infrastructure and subsequently destroying the provisioned resources.
+**Task 1 – AWS Infrastructure Provisioning**
+
+Terraform was used to provision AWS infrastructure and was integrated with a Jenkins pipeline. The pipeline was tested by creating and subsequently destroying the provisioned resources.
+
+**Task 2 – Configuration Management**
+
+Ansible and Jenkins were used to automate configuration management across different environments. AWS EC2 dynamic inventory was integrated to identify target instances dynamically.
+
+**Task 3 – CI/CD Pipeline**
+
+A CI/CD workflow was implemented using Jenkins, Docker, Amazon ECR, Ansible, and Docker Compose. The pipeline builds and pushes Docker images to ECR and deploys the application to an AWS EC2 instance.
 
 ## Project Status
 
-**Task 1 – Completed and tested successfully.**
+- **Task 1 – Completed and tested successfully.**
+- **Task 2 – Completed.** Ansible configuration management and Jenkins automation implemented.
+- **Task 3 – Completed and tested successfully.** CI/CD pipeline implemented and application deployed to AWS EC2.
+
 
 ## Author
 
