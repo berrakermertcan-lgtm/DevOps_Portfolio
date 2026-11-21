@@ -1,0 +1,151 @@
+
+pipeline {
+    agent any
+
+    options {
+        disableConcurrentBuilds()
+    }
+
+    environment {
+        AWS_REGION = "us-east-1"
+        APP_NAME = "real-estate-app"
+        APP_REPO_NAME = "real-estate-app-repo"
+        APP_REPO_URL = "https://github.com/berrakermertcan-lgtm/DevOps_Final_Project.git"
+    }
+
+    stages {
+
+        stage('Get AWS Account ID') {
+            steps {
+                script {
+                    env.AWS_ACCOUNT_ID = sh(
+                        script: 'aws sts get-caller-identity --query Account --output text',
+                        returnStdout: true
+                    ).trim()
+
+                    env.ECR_REGISTRY = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
+                }
+            }
+        }
+
+        stage('Checkout Source Code') {
+            steps {
+                dir('source') {
+                    git branch: 'main',
+                        url: "${APP_REPO_URL}",
+                        credentialsId: 'fcdd02c6-54cb-4030-9943-fecebfab7ca8'
+                }
+            }
+        }
+
+        stage('Create ECR Repository') {
+            steps {
+                sh '''
+                    aws ecr describe-repositories \
+                        --repository-names "$APP_REPO_NAME" \
+                        --region "$AWS_REGION" >/dev/null 2>&1 ||
+                    aws ecr create-repository \
+                        --repository-name "$APP_REPO_NAME" \
+                        --region "$AWS_REGION"
+                '''
+            }
+        }
+
+        stage('Prepare Docker Image Tags') {
+            steps {
+                script {
+                    env.IMAGE_TAG_FE = "${env.ECR_REGISTRY}/${env.APP_REPO_NAME}:frontend-v${env.BUILD_NUMBER}"
+                    env.IMAGE_TAG_BE = "${env.ECR_REGISTRY}/${env.APP_REPO_NAME}:backend-v${env.BUILD_NUMBER}"
+                    env.IMAGE_TAG_FE_LATEST = "${env.ECR_REGISTRY}/${env.APP_REPO_NAME}:frontend"
+                    env.IMAGE_TAG_BE_LATEST = "${env.ECR_REGISTRY}/${env.APP_REPO_NAME}:backend"
+                }
+            }
+        }
+
+        stage('Login to ECR') {
+            steps {
+                sh '''
+                    aws ecr get-login-password --region "$AWS_REGION" |
+                    docker login --username AWS --password-stdin "$ECR_REGISTRY"
+                '''
+            }
+        }
+
+        stage('Build and Push Frontend') {
+            steps {
+                sh '''
+                    docker build --force-rm \
+                        -t "$IMAGE_TAG_FE" \
+                        -t "$IMAGE_TAG_FE_LATEST" \
+                        "$WORKSPACE/source/RealEstateAppProject/True-Roots-Frontend"
+
+                    docker push "$IMAGE_TAG_FE"
+                    docker push "$IMAGE_TAG_FE_LATEST"
+
+                    docker image rm \
+                        "$IMAGE_TAG_FE" \
+                        "$IMAGE_TAG_FE_LATEST" \
+                        node:20.14-slim || true
+
+                    docker builder prune -af
+                '''
+            }
+        }
+
+        stage('Build and Push Backend') {
+            steps {
+                sh '''
+                    docker build --force-rm \
+                        -t "$IMAGE_TAG_BE" \
+                        -t "$IMAGE_TAG_BE_LATEST" \
+                        "$WORKSPACE/source/RealEstateAppProject/True-Roots-Backend"
+
+                    docker push "$IMAGE_TAG_BE"
+                    docker push "$IMAGE_TAG_BE_LATEST"
+
+                    docker image rm \
+                        "$IMAGE_TAG_BE" \
+                        "$IMAGE_TAG_BE_LATEST" \
+                        maven:3.8.5-openjdk-17 \
+                        eclipse-temurin:17-jre || true
+
+                    docker builder prune -af
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'Cleaning up local Docker resources...'
+
+            sh '''
+                for image in \
+                    "${IMAGE_TAG_FE:-}" \
+                    "${IMAGE_TAG_FE_LATEST:-}" \
+                    "${IMAGE_TAG_BE:-}" \
+                    "${IMAGE_TAG_BE_LATEST:-}" \
+                    "node:20.14-slim" \
+                    "maven:3.8.5-openjdk-17" \
+                    "eclipse-temurin:17-jre"
+                do
+                    if [ -n "$image" ]; then
+                        docker image rm "$image" >/dev/null 2>&1 || true
+                    fi
+                done
+
+                docker builder prune -af || true
+            '''
+        }
+
+        success {
+            echo 'CI Pipeline completed successfully!'
+            echo 'Frontend and Backend images pushed to ECR.'
+        }
+
+        failure {
+            echo 'CI Pipeline failed. Check Console Output.'
+        }
+    }
+}
+

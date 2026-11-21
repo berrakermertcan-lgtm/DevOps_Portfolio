@@ -1,0 +1,82 @@
+
+pipeline {
+    agent any
+
+    options {
+        disableConcurrentBuilds()
+    }
+
+    environment {
+        AWS_REGION = "us-east-1"
+        AWS_DEFAULT_REGION = "us-east-1"
+    }
+
+    stages {
+
+        stage('Get AWS Account ID') {
+            steps {
+                script {
+                    env.AWS_ACCOUNT_ID = sh(
+                        script: 'aws sts get-caller-identity --query Account --output text',
+                        returnStdout: true
+                    ).trim()
+
+                    echo "AWS Account ID: ${env.AWS_ACCOUNT_ID}"
+                }
+            }
+        }
+
+        stage('ENVSUBST UPDATE DOCKER COMPOSE') {
+            steps {
+                echo 'Updating Docker Compose'
+
+                sh '''
+                    set -e
+                    cd "$WORKSPACE/Task-3-Solution/docker"
+                    envsubst '${AWS_ACCOUNT_ID}' < docker-compose-template.yml > docker-compose.yml
+                '''
+            }
+        }
+
+        stage('Deploy Application') {
+            steps {
+                echo 'Deploy Application'
+
+                sh '''
+                    set -e
+
+                    cd "$WORKSPACE/Task-3-Solution/ansible"
+
+                    ansible --version
+
+                    ansible-inventory -i inventory_aws_ec2.yml --graph
+
+                    test -r /var/lib/jenkins/.ssh/dev_server.pem
+
+                    ssh-keygen -y -f /var/lib/jenkins/.ssh/dev_server.pem > /dev/null
+
+                    ansible-playbook \
+    -i inventory_aws_ec2.yml \
+    --private-key=/var/lib/jenkins/.ssh/dev_server.pem \
+    -u ec2-user \
+    -e "compose_dir=$WORKSPACE/Task-3-Solution/docker" \
+    dev.yml -vv
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'CD Pipeline completed'
+        }
+
+        success {
+            echo 'CD Pipeline completed successfully!'
+        }
+
+        failure {
+            echo 'CD Pipeline failed'
+        }
+    }
+}

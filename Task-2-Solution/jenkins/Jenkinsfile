@@ -1,0 +1,162 @@
+
+pipeline {
+    agent any
+
+    options {
+        disableConcurrentBuilds()
+    }
+
+    parameters {
+        choice(
+            name: 'ENVIRONMENT',
+            choices: ['default', 'test', 'dev', 'prod'],
+            description: 'Select the target environment'
+        )
+
+        string(
+            name: 'INSTANCE_TYPE',
+            defaultValue: 't3.micro',
+            description: 'AWS EC2 instance type'
+        )
+
+        string(
+            name: 'INSTANCE_COUNT',
+            defaultValue: '1',
+            description: 'Number of EC2 instances'
+        )
+    }
+
+    environment {
+        AWS_REGION = 'us-east-1'
+        AWS_DEFAULT_REGION = 'us-east-1'
+    }
+
+    stages {
+
+        stage('Create Key Pair') {
+            steps {
+                sh '''
+                    mkdir -p "$WORKSPACE/.task2-keys"
+                    chmod 700 "$WORKSPACE/.task2-keys"
+
+                    aws ec2 create-key-pair \
+                        --region "$AWS_REGION" \
+                        --key-name "$ENVIRONMENT" \
+                        --query KeyMaterial \
+                        --output text > "$WORKSPACE/.task2-keys/${ENVIRONMENT}.pem"
+
+                    chmod 400 "$WORKSPACE/.task2-keys/${ENVIRONMENT}.pem"
+                '''
+            }
+        }
+
+        stage('Create AWS Resource') {
+            steps {
+                dir('Task-1-Solution/terraform') {
+                    sh '''
+                        terraform init
+
+                        terraform workspace select "$ENVIRONMENT" ||
+                        terraform workspace new "$ENVIRONMENT"
+
+                        terraform apply \
+                            -var="ec2_type=$INSTANCE_TYPE" \
+                            -var="num_of_instance=$INSTANCE_COUNT" \
+                            -var="ec2_key=$ENVIRONMENT" \
+                            -auto-approve
+                    '''
+                }
+            }
+        }
+
+        stage('Wait the Instance') {
+            steps {
+                sh '''
+                    echo "Waiting for EC2 instances..."
+
+                    INSTANCE_IDS=$(aws ec2 describe-instances \
+                        --region "$AWS_REGION" \
+                        --filters \
+                        "Name=tag:Name,Values=${ENVIRONMENT}_server" \
+                        "Name=instance-state-name,Values=pending,running" \
+                        --query 'Reservations[].Instances[].InstanceId' \
+                        --output text)
+
+                    if [ -z "$INSTANCE_IDS" ] || [ "$INSTANCE_IDS" = "None" ]; then
+                        echo "No EC2 instances found."
+                        exit 1
+                    fi
+
+                    aws ec2 wait instance-running \
+                        --region "$AWS_REGION" \
+                        --instance-ids $INSTANCE_IDS
+
+                    aws ec2 wait instance-status-ok \
+                        --region "$AWS_REGION" \
+                        --instance-ids $INSTANCE_IDS
+
+                    echo "EC2 instances are running."
+                '''
+            }
+        }
+
+        stage('Configure AWS Instance') {
+            steps {
+                dir('Task-2-Solution/ansible') {
+                    sh '''
+                        echo "Configuring $ENVIRONMENT environment..."
+
+                        ansible-inventory \
+                            -i inventory_aws_ec2.yml \
+                            --graph
+
+                        ansible-playbook \
+                            -i inventory_aws_ec2.yml \
+                            "${ENVIRONMENT}.yml" \
+                            --private-key "$WORKSPACE/.task2-keys/${ENVIRONMENT}.pem"
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'Pipeline execution completed.'
+        }
+
+        success {
+            script {
+                timeout(time: 30, unit: 'DAYS') {
+                    input message: 'Approve termination of AWS resources?'
+                }
+            }
+
+            dir('Task-1-Solution/terraform') {
+                sh '''
+                    terraform init
+                    terraform workspace select "$ENVIRONMENT"
+                    terraform destroy \
+                        -var="ec2_type=$INSTANCE_TYPE" \
+                        -var="num_of_instance=$INSTANCE_COUNT" \
+                        -var="ec2_key=$ENVIRONMENT" \
+                        -auto-approve
+                '''
+            }
+
+            sh '''
+                aws ec2 delete-key-pair \
+                    --region "$AWS_REGION" \
+                    --key-name "$ENVIRONMENT"
+
+                rm -f "$WORKSPACE/.task2-keys/${ENVIRONMENT}.pem"
+            '''
+
+            echo 'AWS resources deleted successfully.'
+        }
+
+        failure {
+            echo 'Pipeline failed. Check AWS resources and Terraform state before cleanup.'
+        }
+    }
+}
