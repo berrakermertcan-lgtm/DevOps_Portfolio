@@ -48,3 +48,13 @@ The pipeline was tested by deploying infrastructure and subsequently destroying 
 
 Berrak Ermertcan  
 Aspiring DevOps & Cloud Engineer
+
+---
+
+## Project Tasks
+
+This portfolio is organized into three practical DevOps tasks:
+
+- [Task 1 – AWS Infrastructure Provisioning with Terraform](./Task-1-Solution/)
+- [Task 2 – Configuration Management with Ansible and Jenkins](./Task-2-Solution/README.md)
+- [Task 3 – CI/CD Pipeline with Jenkins, Docker and AWS](./Task-3-Solution/README.md)
